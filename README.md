@@ -523,14 +523,7 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 
 This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
 
-## Support
-
-- **Documentation**: [https://tailscale.com/kb/](https://tailscale.com/kb/)
-- **Community**: [https://github.com/tailscale/tailscale/discussions](https://github.com/tailscale/tailscale/discussions)
-- **Issues**: [https://github.com/phildougherty/tailscale-injection-webhook/issues](https://github.com/phildougherty/tailscale-injection-webhook/issues)
-
 ## Acknowledgments
 
 - Tailscale team for the excellent mesh networking platform
 - Kubernetes community for the admission webhook framework
-- Contributors and users who make this project possible
