@@ -10,7 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
 
-	"github.com/tailscale/tailscale-injection-webhook/pkg/injection"
+	"github.com/phildougherty/tailscale-injection-webhook/pkg/injection"
 )
 
 const (

@@ -13,9 +13,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/tailscale/tailscale-injection-webhook/pkg/injection"
-	"github.com/tailscale/tailscale-injection-webhook/pkg/tailscale"
-	"github.com/tailscale/tailscale-injection-webhook/pkg/webhook"
+	"github.com/phildougherty/tailscale-injection-webhook/pkg/injection"
+	"github.com/phildougherty/tailscale-injection-webhook/pkg/tailscale"
+	"github.com/phildougherty/tailscale-injection-webhook/pkg/webhook"
 )
 
 func TestMutateHandler(t *testing.T) {

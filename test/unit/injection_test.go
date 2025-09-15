@@ -8,8 +8,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/tailscale/tailscale-injection-webhook/pkg/injection"
-	"github.com/tailscale/tailscale-injection-webhook/pkg/tailscale"
+	"github.com/phildougherty/tailscale-injection-webhook/pkg/injection"
+	"github.com/phildougherty/tailscale-injection-webhook/pkg/tailscale"
 )
 
 func TestNewDefaultConfig(t *testing.T) {

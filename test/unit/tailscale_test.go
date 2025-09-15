@@ -9,7 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/tailscale/tailscale-injection-webhook/pkg/tailscale"
+	"github.com/phildougherty/tailscale-injection-webhook/pkg/tailscale"
 )
 
 func TestValidateAuthKey(t *testing.T) {
