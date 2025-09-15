@@ -2,10 +2,6 @@
 
 A Kubernetes admission webhook that automatically injects Tailscale sidecar containers into pods, enabling seamless mesh networking for your applications.
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/phildougherty/tailscale-injection-webhook)](https://goreportcard.com/report/github.com/phildougherty/tailscale-injection-webhook)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Docker Pulls](https://img.shields.io/docker/pulls/phildougherty/tailscale-injection-webhook)](https://hub.docker.com/r/phildougherty/tailscale-injection-webhook)
-
 ## Overview
 
 The Tailscale Injection Webhook integrates with the Kubernetes admission controller system to automatically inject Tailscale sidecar containers into pods based on annotations. This enables your applications to join your Tailscale network without requiring code changes or complex networking configurations.
