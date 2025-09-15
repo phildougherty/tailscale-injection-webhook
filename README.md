@@ -2,9 +2,9 @@
 
 A Kubernetes admission webhook that automatically injects Tailscale sidecar containers into pods, enabling seamless mesh networking for your applications.
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/tailscale/tailscale-injection-webhook)](https://goreportcard.com/report/github.com/tailscale/tailscale-injection-webhook)
-[![License](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
-[![Docker Pulls](https://img.shields.io/docker/pulls/tailscale/tailscale-injection-webhook)](https://hub.docker.com/r/tailscale/tailscale-injection-webhook)
+[![Go Report Card](https://goreportcard.com/badge/github.com/phildougherty/tailscale-injection-webhook)](https://goreportcard.com/report/github.com/phildougherty/tailscale-injection-webhook)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Docker Pulls](https://img.shields.io/docker/pulls/phildougherty/tailscale-injection-webhook)](https://hub.docker.com/r/phildougherty/tailscale-injection-webhook)
 
 ## Overview
 
@@ -35,7 +35,7 @@ The Tailscale Injection Webhook integrates with the Kubernetes admission control
 
 ```bash
 # Clone the repository
-git clone https://github.com/tailscale/tailscale-injection-webhook.git
+git clone https://github.com/phildougherty/tailscale-injection-webhook.git
 cd tailscale-injection-webhook
 
 # Create the tailscale-system namespace
@@ -436,10 +436,10 @@ Deploy using Helm for production environments:
 
 ```bash
 # Add the Helm repository
-helm repo add tailscale https://tailscale.github.io/tailscale-injection-webhook
+helm repo add phildougherty https://phildougherty.github.io/tailscale-injection-webhook
 
 # Install the chart
-helm install tailscale-injector tailscale/tailscale-injection-webhook \
+helm install tailscale-injector phildougherty/tailscale-injection-webhook \
   --namespace tailscale-system \
   --create-namespace \
   --set authKey.value=tskey-auth-your-key-here
@@ -450,7 +450,7 @@ helm install tailscale-injector tailscale/tailscale-injection-webhook \
 ```yaml
 # values.yaml
 image:
-  repository: tailscale/tailscale-injection-webhook
+  repository: phildougherty/tailscale-injection-webhook
   tag: v1.0.0
   pullPolicy: IfNotPresent
 
@@ -521,13 +521,13 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 
 ## License
 
-This project is licensed under the BSD 3-Clause License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
 
 ## Support
 
 - **Documentation**: [https://tailscale.com/kb/](https://tailscale.com/kb/)
 - **Community**: [https://github.com/tailscale/tailscale/discussions](https://github.com/tailscale/tailscale/discussions)
-- **Issues**: [https://github.com/tailscale/tailscale-injection-webhook/issues](https://github.com/tailscale/tailscale-injection-webhook/issues)
+- **Issues**: [https://github.com/phildougherty/tailscale-injection-webhook/issues](https://github.com/phildougherty/tailscale-injection-webhook/issues)
 
 ## Acknowledgments
 
