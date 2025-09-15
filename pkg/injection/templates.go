@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 // TemplateEngine handles templating for injection configurations
@@ -371,8 +372,6 @@ func (ct *ContainerTemplate) getReadinessProbe() *corev1.Probe {
 }
 
 // mustParseQuantity parses a resource quantity string
-func mustParseQuantity(s string) corev1.ResourceList {
-	// This is a simplified implementation
-	// In production, use resource.MustParse(s)
-	return corev1.ResourceList{}
+func mustParseQuantity(s string) resource.Quantity {
+	return resource.MustParse(s)
 }

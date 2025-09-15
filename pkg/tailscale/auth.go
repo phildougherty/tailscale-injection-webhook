@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -140,7 +139,6 @@ func (a *Authenticator) CreateEphemeralAuthKey(ctx context.Context, config *Auth
 	}
 
 	if config.ExpiryHours > 0 {
-		expiry := time.Now().Add(time.Duration(config.ExpiryHours) * time.Hour)
 		payload["expirySeconds"] = int64(config.ExpiryHours * 3600)
 	}
 

@@ -1,6 +1,7 @@
 package injection
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"regexp"
@@ -8,6 +9,14 @@ import (
 	"strings"
 
 	"k8s.io/klog/v2"
+)
+
+// Annotation keys
+const (
+	AnnotationHostname     = "tailscale.com/hostname"
+	AnnotationTags         = "tailscale.com/tags"
+	AnnotationSubnetRouter = "tailscale.com/subnet-router"
+	AnnotationExpose       = "tailscale.com/expose"
 )
 
 // SecurityValidator validates annotations for security issues
@@ -152,7 +161,7 @@ func (sv *SecurityValidator) validateCIDRs(cidrsStr string) error {
 		for _, dangerous := range dangerousNetworks {
 			_, dangerousNet, _ := net.ParseCIDR(dangerous)
 			if ipNet.String() == dangerousNet.String() {
-				klog.WarningS(nil, "Potentially dangerous CIDR block requested",
+				klog.V(2).InfoS("Potentially dangerous CIDR block requested",
 					"cidr", cidr,
 				)
 			}
@@ -245,7 +254,7 @@ func (sv *SecurityValidator) validatePort(port int) error {
 
 	for _, dangerous := range dangerousPorts {
 		if port == dangerous {
-			klog.WarningS(nil, "Potentially dangerous port requested",
+			klog.V(2).InfoS("Potentially dangerous port requested",
 				"port", port,
 			)
 		}

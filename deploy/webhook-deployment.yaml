@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tailscale-webhook
+  namespace: tailscale-webhook
+  labels:
+    app: tailscale-webhook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tailscale-webhook
+  template:
+    metadata:
+      labels:
+        app: tailscale-webhook
+    spec:
+      serviceAccountName: tailscale-webhook
+      containers:
+      - name: webhook
+        image: tailscale-webhook:latest
+        imagePullPolicy: Never  # For local testing
+        ports:
+        - containerPort: 8443
+          name: webhook
+        - containerPort: 8081
+          name: health
+        volumeMounts:
+        - name: webhook-certs
+          mountPath: /etc/webhook/certs
+          readOnly: true
+        env:
+        - name: TLS_CERT_FILE
+          value: "/etc/webhook/certs/tls.crt"
+        - name: TLS_KEY_FILE
+          value: "/etc/webhook/certs/tls.key"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8081
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+      volumes:
+      - name: webhook-certs
+        secret:
+          secretName: webhook-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tailscale-webhook
+  namespace: tailscale-webhook
+spec:
+  ports:
+  - name: webhook
+    port: 443
+    targetPort: 8443
+  selector:
+    app: tailscale-webhook
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tailscale-webhook
+  namespace: tailscale-webhook
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tailscale-webhook
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list", "create", "update", "patch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tailscale-webhook
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tailscale-webhook
+subjects:
+- kind: ServiceAccount
+  name: tailscale-webhook
+  namespace: tailscale-webhook
