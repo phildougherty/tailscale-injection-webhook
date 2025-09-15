@@ -1,0 +1,418 @@
+# Tailscale Injection Webhook Configuration Template
+# This file defines the default configuration for the webhook and injection behavior
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tailscale-injection-config
+  namespace: tailscale-system
+  labels:
+    app: tailscale-injection-webhook
+    component: config
+data:
+  # Main webhook configuration
+  webhook.yaml: |
+    webhook:
+      # Server configuration
+      bindAddress: "0.0.0.0"
+      port: 8443
+      certFile: "/etc/certs/tls.crt"
+      keyFile: "/etc/certs/tls.key"
+
+      # Graceful shutdown timeout
+      gracefulTimeout: "30s"
+
+      # Health check configuration
+      healthCheck:
+        enabled: true
+        path: "/health"
+
+      # Readiness check configuration
+      readinessCheck:
+        enabled: true
+        path: "/ready"
+
+    # Metrics configuration
+    metrics:
+      enabled: true
+      bindAddress: "0.0.0.0"
+      port: 8080
+      path: "/metrics"
+
+    # Logging configuration
+    logging:
+      level: "info"          # debug, info, warn, error
+      format: "json"         # json, text
+      timestamp: true
+      caller: false
+
+    # Injection behavior configuration
+    injection:
+      # Default Tailscale container image
+      defaultImage: "tailscale/tailscale:v1.52.1"
+      defaultImagePullPolicy: "IfNotPresent"
+
+      # Default auth key secret name
+      defaultAuthKeySecret: "tailscale-auth-key"
+
+      # Default operational mode
+      defaultUserspace: false
+      defaultDebug: false
+      defaultAcceptRoutes: false
+
+      # Default resource requirements
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+
+      # Default security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: false
+        capabilities:
+          add: ["NET_ADMIN"]
+          drop: ["ALL"]
+
+      # Container lifecycle
+      lifecycle:
+        # Graceful termination period
+        terminationGracePeriodSeconds: 30
+
+        # Startup probe configuration
+        startupProbe:
+          enabled: true
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 10
+
+        # Liveness probe configuration
+        livenessProbe:
+          enabled: true
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+
+        # Readiness probe configuration
+        readinessProbe:
+          enabled: true
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+    # Tag management configuration
+    tags:
+      # Enable automatic tag generation
+      autoGenerate: true
+
+      # Default tags applied to all injected pods
+      defaultTags:
+        - "tag:k8s"
+        - "tag:webhook-injected"
+
+      # Tag generation rules
+      rules:
+        # Add namespace-based tag
+        namespace:
+          enabled: true
+          template: "tag:k8s-namespace-{{.Namespace}}"
+
+        # Add environment-based tag (derived from namespace)
+        environment:
+          enabled: true
+          template: "tag:env-{{.Environment}}"
+
+        # Add pod-specific tag (disabled by default for security)
+        pod:
+          enabled: false
+          template: "tag:k8s-pod-{{.PodName}}"
+
+        # Add application label-based tag
+        application:
+          enabled: true
+          template: "tag:app-{{.AppLabel}}"
+          labelKey: "app"
+
+      # Tag validation rules
+      validation:
+        # Maximum number of tags per pod
+        maxTags: 20
+
+        # Maximum tag length
+        maxTagLength: 80
+
+        # Allowed tag patterns (regex)
+        allowedPatterns:
+          - "^tag:[a-z0-9]([a-z0-9-_]*[a-z0-9])?$"
+
+        # Forbidden tag patterns (regex)
+        forbiddenPatterns:
+          - "^tag:admin.*"
+          - "^tag:system.*"
+
+    # Network configuration
+    network:
+      # DNS configuration
+      dns:
+        # Accept DNS from Tailscale (usually disabled for K8s)
+        acceptDNS: false
+
+        # Custom DNS servers (optional)
+        customServers: []
+
+      # Route configuration
+      routes:
+        # Accept routes from other Tailscale nodes
+        acceptRoutes: false
+
+        # Default subnet routes to advertise (empty by default)
+        defaultAdvertiseRoutes: []
+
+      # Exit node configuration
+      exitNode:
+        # Allow pods to advertise as exit nodes
+        allowAdvertising: false
+
+        # Default exit node to use (empty by default)
+        defaultExitNode: ""
+
+    # Security configuration
+    security:
+      # Pod security standards
+      podSecurity:
+        # Enforce security context
+        enforceSecurityContext: true
+
+        # Allow privileged containers (only for kernel mode)
+        allowPrivileged: false
+
+        # Require non-root user for userspace mode
+        requireNonRoot: true
+
+      # Admission control
+      admission:
+        # Fail on validation errors
+        failOnError: true
+
+        # Allow injection into system namespaces
+        allowSystemNamespaces: false
+
+        # Require specific annotations for injection
+        requireExplicitInjection: true
+
+  # Injection profiles for different use cases
+  profiles.yaml: |
+    # Predefined injection profiles
+    profiles:
+      # Development profile - more permissive, debug enabled
+      development:
+        image: "tailscale/tailscale:unstable"
+        userspace: true
+        debug: true
+        resources:
+          requests:
+            cpu: "5m"
+            memory: "16Mi"
+          limits:
+            cpu: "50m"
+            memory: "64Mi"
+        tags:
+          - "tag:env-development"
+          - "tag:debug-enabled"
+
+      # Production profile - optimized for performance and security
+      production:
+        image: "tailscale/tailscale:stable"
+        userspace: false
+        debug: false
+        resources:
+          requests:
+            cpu: "20m"
+            memory: "64Mi"
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+        tags:
+          - "tag:env-production"
+          - "tag:monitored"
+        securityContext:
+          runAsNonRoot: false
+          capabilities:
+            add: ["NET_ADMIN"]
+
+      # High-performance profile - for latency-sensitive workloads
+      high-performance:
+        image: "tailscale/tailscale:stable"
+        userspace: false
+        debug: false
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        tags:
+          - "tag:high-performance"
+          - "tag:priority-high"
+
+      # Minimal profile - for resource-constrained environments
+      minimal:
+        image: "tailscale/tailscale:stable"
+        userspace: true
+        debug: false
+        resources:
+          requests:
+            cpu: "1m"
+            memory: "8Mi"
+          limits:
+            cpu: "10m"
+            memory: "32Mi"
+        tags:
+          - "tag:minimal-resources"
+
+  # Namespace-specific configurations
+  namespaces.yaml: |
+    # Namespace-specific injection configurations
+    namespaces:
+      # Default configuration for most namespaces
+      default:
+        profile: "production"
+        autoInject: false
+        tags:
+          - "tag:default-config"
+
+      # Development namespaces
+      development:
+        profile: "development"
+        autoInject: true
+        tags:
+          - "tag:env-development"
+        allowedPatterns:
+          - ".*-dev$"
+          - ".*-development$"
+
+      # Staging namespaces
+      staging:
+        profile: "production"
+        autoInject: true
+        tags:
+          - "tag:env-staging"
+        allowedPatterns:
+          - ".*-staging$"
+          - ".*-stage$"
+
+      # Production namespaces
+      production:
+        profile: "production"
+        autoInject: false
+        tags:
+          - "tag:env-production"
+          - "tag:critical"
+        allowedPatterns:
+          - ".*-prod$"
+          - ".*-production$"
+        securityPolicy: "strict"
+
+---
+# Sample auth key secret template
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tailscale-auth-key
+  namespace: tailscale-system
+  labels:
+    app: tailscale-injection-webhook
+    component: auth
+type: Opaque
+data:
+  # Base64 encoded Tailscale auth key
+  # Replace with your actual auth key: echo -n "your-auth-key" | base64
+  authkey: dHNrZXktYXV0aC1leGFtcGxlLWtleQ== # Example: "tskey-auth-example-key"
+
+---
+# Example injection annotation templates
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tailscale-injection-examples
+  namespace: tailscale-system
+  labels:
+    app: tailscale-injection-webhook
+    component: examples
+data:
+  basic-injection.yaml: |
+    # Basic injection - minimal configuration
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: my-app
+      annotations:
+        tailscale.com/inject: "true"
+    spec:
+      containers:
+      - name: app
+        image: nginx:latest
+
+  advanced-injection.yaml: |
+    # Advanced injection - full configuration
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: my-advanced-app
+      annotations:
+        tailscale.com/inject: "true"
+        tailscale.com/hostname: "my-app-production"
+        tailscale.com/tags: '["tag:web-frontend", "tag:production"]'
+        tailscale.com/auth-key: "custom-auth-key-secret"
+        tailscale.com/accept-routes: "true"
+        tailscale.com/userspace: "false"
+        tailscale.com/debug: "false"
+    spec:
+      containers:
+      - name: app
+        image: myapp:latest
+        ports:
+        - containerPort: 8080
+
+  subnet-router.yaml: |
+    # Subnet router configuration
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: subnet-router
+      annotations:
+        tailscale.com/inject: "true"
+        tailscale.com/hostname: "k8s-subnet-router"
+        tailscale.com/subnet-router: "10.96.0.0/12,10.244.0.0/16"
+        tailscale.com/tags: '["tag:subnet-router", "tag:k8s-infrastructure"]'
+    spec:
+      containers:
+      - name: router
+        image: alpine:latest
+        command: ["sleep", "infinity"]
+
+  exit-node.yaml: |
+    # Exit node configuration
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: exit-node
+      annotations:
+        tailscale.com/inject: "true"
+        tailscale.com/hostname: "k8s-exit-node"
+        tailscale.com/exit-node: "true"
+        tailscale.com/tags: '["tag:exit-node", "tag:k8s-infrastructure"]'
+    spec:
+      containers:
+      - name: exit-node
+        image: alpine:latest
+        command: ["sleep", "infinity"]

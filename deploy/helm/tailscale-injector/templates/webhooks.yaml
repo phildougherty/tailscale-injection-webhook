@@ -1,0 +1,74 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingAdmissionWebhook
+metadata:
+  name: {{ include "tailscale-injector.fullname" . }}
+  labels:
+    {{- include "tailscale-injector.labels" . | nindent 4 }}
+    component: webhook
+  {{- with (include "tailscale-injector.annotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+    {{- if eq .Values.certificates.method "cert-manager" }}
+    cert-manager.io/inject-ca-from: {{ include "tailscale-injector.namespace" . }}/{{ include "tailscale-injector.certificateSecretName" . }}
+    {{- end }}
+  {{- end }}
+webhooks:
+- name: sidecar-injection.tailscale.com
+  clientConfig:
+    service:
+      name: {{ include "tailscale-injector.webhookServiceName" . }}
+      namespace: {{ include "tailscale-injector.namespace" . }}
+      path: "/mutate"
+    {{- if ne .Values.certificates.method "cert-manager" }}
+    caBundle: {{ include "tailscale-injector.caBundle" . }}
+    {{- end }}
+  rules:
+  - operations: ["CREATE"]
+    apiGroups: [""]
+    apiVersions: ["v1"]
+    resources: ["pods"]
+  namespaceSelector:
+    {{- toYaml .Values.webhook.namespaceSelector | nindent 4 }}
+  objectSelector:
+    {{- toYaml .Values.webhook.objectSelector | nindent 4 }}
+  failurePolicy: {{ .Values.webhook.failurePolicy }}
+  admissionReviewVersions: ["v1", "v1beta1"]
+  sideEffects: None
+
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionWebhook
+metadata:
+  name: {{ include "tailscale-injector.fullname" . }}-validator
+  labels:
+    {{- include "tailscale-injector.labels" . | nindent 4 }}
+    component: webhook
+  {{- with (include "tailscale-injector.annotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+    {{- if eq .Values.certificates.method "cert-manager" }}
+    cert-manager.io/inject-ca-from: {{ include "tailscale-injector.namespace" . }}/{{ include "tailscale-injector.certificateSecretName" . }}
+    {{- end }}
+  {{- end }}
+webhooks:
+- name: sidecar-validation.tailscale.com
+  clientConfig:
+    service:
+      name: {{ include "tailscale-injector.webhookServiceName" . }}
+      namespace: {{ include "tailscale-injector.namespace" . }}
+      path: "/validate"
+    {{- if ne .Values.certificates.method "cert-manager" }}
+    caBundle: {{ include "tailscale-injector.caBundle" . }}
+    {{- end }}
+  rules:
+  - operations: ["CREATE", "UPDATE"]
+    apiGroups: [""]
+    apiVersions: ["v1"]
+    resources: ["pods"]
+  namespaceSelector:
+    {{- toYaml .Values.webhook.namespaceSelector | nindent 4 }}
+  objectSelector:
+    {{- toYaml .Values.webhook.objectSelector | nindent 4 }}
+  failurePolicy: {{ .Values.webhook.failurePolicy }}
+  admissionReviewVersions: ["v1", "v1beta1"]
+  sideEffects: None

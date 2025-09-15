@@ -1,0 +1,126 @@
+{{- if and .Values.metrics.enabled .Values.monitoring.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "tailscale-injector.fullname" . }}
+  namespace: {{ .Values.monitoring.serviceMonitor.namespace | default (include "tailscale-injector.namespace" .) }}
+  labels:
+    {{- include "tailscale-injector.labels" . | nindent 4 }}
+    component: monitoring
+    {{- with .Values.monitoring.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.monitoring.serviceMonitor.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with (include "tailscale-injector.annotations" .) }}
+    {{- . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "tailscale-injector.selectorLabels" . | nindent 6 }}
+      component: webhook
+  endpoints:
+  - port: metrics
+    interval: {{ .Values.monitoring.serviceMonitor.interval }}
+    scrapeTimeout: {{ .Values.monitoring.serviceMonitor.scrapeTimeout }}
+    path: /metrics
+    scheme: http
+{{- end }}
+
+{{- if and .Values.metrics.enabled .Values.monitoring.grafanaDashboard.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "tailscale-injector.fullname" . }}-dashboard
+  namespace: {{ .Values.monitoring.grafanaDashboard.namespace | default (include "tailscale-injector.namespace" .) }}
+  labels:
+    {{- include "tailscale-injector.labels" . | nindent 4 }}
+    component: monitoring
+    grafana_dashboard: "1"
+    {{- with .Values.monitoring.grafanaDashboard.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with (include "tailscale-injector.annotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+data:
+  tailscale-injector.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "Tailscale Injection Webhook",
+        "tags": ["tailscale", "kubernetes", "webhook"],
+        "style": "dark",
+        "timezone": "browser",
+        "panels": [
+          {
+            "id": 1,
+            "title": "Injection Rate",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "rate(tailscale_webhook_injections_total[5m])",
+                "legendFormat": "Injections/sec"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "reqps"
+              }
+            },
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+          },
+          {
+            "id": 2,
+            "title": "Success Rate",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "rate(tailscale_webhook_injections_total{result=\"success\"}[5m]) / rate(tailscale_webhook_injections_total[5m]) * 100",
+                "legendFormat": "Success %"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percent",
+                "min": 0,
+                "max": 100
+              }
+            },
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+          },
+          {
+            "id": 3,
+            "title": "Injection Duration",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "histogram_quantile(0.95, rate(tailscale_webhook_injection_duration_seconds_bucket[5m]))",
+                "legendFormat": "95th percentile"
+              },
+              {
+                "expr": "histogram_quantile(0.50, rate(tailscale_webhook_injection_duration_seconds_bucket[5m]))",
+                "legendFormat": "50th percentile"
+              }
+            ],
+            "yAxes": [
+              {
+                "unit": "s"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8}
+          }
+        ],
+        "time": {
+          "from": "now-1h",
+          "to": "now"
+        },
+        "refresh": "30s"
+      }
+    }
+{{- end }}

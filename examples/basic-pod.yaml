@@ -1,0 +1,27 @@
+# Basic Pod with Tailscale Injection
+# This example shows the simplest way to inject a Tailscale sidecar
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: basic-app
+  namespace: default
+  labels:
+    app: basic-app
+  annotations:
+    # Enable Tailscale injection
+    tailscale.com/inject: "true"
+spec:
+  containers:
+  - name: app
+    image: nginx:latest
+    ports:
+    - containerPort: 80
+      name: http
+    resources:
+      requests:
+        cpu: 10m
+        memory: 16Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi

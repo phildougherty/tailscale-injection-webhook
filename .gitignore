@@ -1,0 +1,116 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/webhook
+/tailscale-injection-webhook
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.txt
+coverage.html
+*.cov
+
+# Dependency directories
+vendor/
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Environment files
+.env
+.env.local
+*.env
+
+# IDE specific files
+.idea/
+*.swp
+*.swo
+*~
+.vscode/
+*.iml
+.DS_Store
+
+# Build directories
+dist/
+build/
+bin/
+_output/
+
+# Kubernetes generated files
+*.generated.yaml
+deploy/manifests/generated/
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Certificates (except examples)
+*.crt
+*.key
+*.pem
+!examples/**/*.crt
+!examples/**/*.key
+!examples/**/*.pem
+
+# Helm dependencies and packages
+deploy/helm/*/charts/
+deploy/helm/*/*.tgz
+deploy/helm/*/Chart.lock
+
+# Local development
+.local/
+.cache/
+kubeconfig
+kubeconfig.yaml
+
+# Debug files
+debug
+debug.test
+*.log
+
+# OS generated files
+Thumbs.db
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Archives
+*.tar
+*.tar.gz
+*.zip
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+terraform.tfvars
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+env/
+venv/
+
+# Documentation build
+docs/_build/
+site/
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# goreleaser
+dist/
+.goreleaser.yml

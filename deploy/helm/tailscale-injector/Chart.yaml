@@ -1,0 +1,22 @@
+apiVersion: v2
+name: tailscale-injector
+description: A Helm chart for Tailscale Injection Webhook
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+home: https://tailscale.com
+sources:
+  - https://github.com/tailscale/tailscale-injection-webhook
+keywords:
+  - tailscale
+  - kubernetes
+  - admission-webhook
+  - sidecar-injection
+  - mesh-networking
+maintainers:
+  - name: Tailscale Team
+    email: support@tailscale.com
+    url: https://tailscale.com
+annotations:
+  category: Networking
+  licenses: BSD-3-Clause

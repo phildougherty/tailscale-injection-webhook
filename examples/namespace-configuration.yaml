@@ -1,0 +1,316 @@
+# Namespace Configuration Examples
+# This file shows how to configure different namespaces for Tailscale injection
+
+# Development namespace with auto-injection enabled
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: development
+  labels:
+    name: development
+    environment: development
+    # Enable auto-injection for this namespace
+    tailscale.com/injection: enabled
+    # Set default injection profile
+    tailscale.com/profile: development
+  annotations:
+    # Namespace-specific configuration
+    tailscale.com/default-tags: '["tag:env-development", "tag:auto-injected"]'
+    tailscale.com/default-auth-key: "development-auth-key"
+    tailscale.com/userspace-default: "true"
+    tailscale.com/debug-default: "true"
+
+---
+# Production namespace with restricted injection
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+  labels:
+    name: production
+    environment: production
+    # Require explicit injection (default)
+    tailscale.com/injection: explicit
+    # Set production profile
+    tailscale.com/profile: production
+  annotations:
+    # Production-specific configuration
+    tailscale.com/default-tags: '["tag:env-production", "tag:critical"]'
+    tailscale.com/default-auth-key: "production-auth-key"
+    tailscale.com/userspace-default: "false"
+    tailscale.com/debug-default: "false"
+    tailscale.com/require-approval: "true"
+
+---
+# Staging namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: staging
+  labels:
+    name: staging
+    environment: staging
+    tailscale.com/injection: enabled
+    tailscale.com/profile: staging
+  annotations:
+    tailscale.com/default-tags: '["tag:env-staging", "tag:pre-production"]'
+    tailscale.com/default-auth-key: "staging-auth-key"
+    tailscale.com/userspace-default: "false"
+    tailscale.com/debug-default: "false"
+
+---
+# System namespace with injection disabled
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kube-system-example
+  labels:
+    name: kube-system-example
+    # Disable injection for system namespaces
+    tailscale.com/injection: disabled
+  annotations:
+    tailscale.com/reason: "System namespace - injection not recommended"
+
+---
+# Auth key secrets for different environments
+
+# Development auth key
+apiVersion: v1
+kind: Secret
+metadata:
+  name: development-auth-key
+  namespace: development
+type: Opaque
+data:
+  # Ephemeral key for development - shorter expiration
+  authkey: dHNrZXktYXV0aC1kZXYtZXBoZW1lcmFsLWtleQ==
+
+---
+# Staging auth key
+apiVersion: v1
+kind: Secret
+metadata:
+  name: staging-auth-key
+  namespace: staging
+type: Opaque
+data:
+  # Staging key with staging-specific tags
+  authkey: dHNrZXktYXV0aC1zdGFnaW5nLWtleQ==
+
+---
+# Production auth key
+apiVersion: v1
+kind: Secret
+metadata:
+  name: production-auth-key
+  namespace: production
+type: Opaque
+data:
+  # Production key with restricted permissions
+  authkey: dHNrZXktYXV0aC1wcm9kdWN0aW9uLWtleQ==
+
+---
+# RBAC for namespace-specific operations
+
+# Development namespace RBAC (more permissive)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tailscale-development
+  namespace: development
+rules:
+- apiGroups: [""]
+  resources: ["secrets", "configmaps"]
+  verbs: ["get", "list", "watch", "create", "update", "patch"]
+- apiGroups: [""]
+  resources: ["pods", "services"]
+  verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tailscale-development
+  namespace: development
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tailscale-development
+subjects:
+- kind: ServiceAccount
+  name: tailscale-injection-webhook
+  namespace: tailscale-system
+
+---
+# Production namespace RBAC (more restrictive)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tailscale-production
+  namespace: production
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list", "watch"]
+  # Only allow specific secrets
+  resourceNames: ["production-auth-key"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tailscale-production
+  namespace: production
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tailscale-production
+subjects:
+- kind: ServiceAccount
+  name: tailscale-injection-webhook
+  namespace: tailscale-system
+
+---
+# Network policies for different environments
+
+# Development - more open networking
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tailscale-development
+  namespace: development
+spec:
+  podSelector:
+    matchLabels:
+      tailscale.com/injected: "true"
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - {}  # Allow all ingress in development
+  egress:
+  - {}  # Allow all egress in development
+
+---
+# Production - restricted networking
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tailscale-production
+  namespace: production
+spec:
+  podSelector:
+    matchLabels:
+      tailscale.com/injected: "true"
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Only allow traffic from same namespace
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: production
+  # Allow traffic from monitoring
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 8080  # metrics port
+  egress:
+  # Allow DNS
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+  # Allow HTTPS to external services
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+  # Allow traffic within namespace
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: production
+
+---
+# Resource quotas for different environments
+
+# Development resource quota
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: tailscale-development
+  namespace: development
+spec:
+  hard:
+    # Allow more resources in development
+    requests.cpu: "2000m"
+    requests.memory: "4Gi"
+    limits.cpu: "4000m"
+    limits.memory: "8Gi"
+    pods: "50"
+    secrets: "20"
+
+---
+# Production resource quota
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: tailscale-production
+  namespace: production
+spec:
+  hard:
+    # More controlled resources in production
+    requests.cpu: "5000m"
+    requests.memory: "10Gi"
+    limits.cpu: "10000m"
+    limits.memory: "20Gi"
+    pods: "100"
+    secrets: "10"
+
+---
+# Monitoring configuration for different environments
+
+# ServiceMonitor for development (if using Prometheus Operator)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: tailscale-development
+  namespace: development
+  labels:
+    app: tailscale
+    environment: development
+spec:
+  selector:
+    matchLabels:
+      tailscale.com/injected: "true"
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+
+---
+# ServiceMonitor for production
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: tailscale-production
+  namespace: production
+  labels:
+    app: tailscale
+    environment: production
+spec:
+  selector:
+    matchLabels:
+      tailscale.com/injected: "true"
+  endpoints:
+  - port: metrics
+    interval: 15s  # More frequent monitoring in production
+    path: /metrics

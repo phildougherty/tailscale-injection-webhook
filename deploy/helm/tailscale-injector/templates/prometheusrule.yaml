@@ -1,0 +1,152 @@
+{{- if .Values.monitoring.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "tailscale-injector.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tailscale-injector.labels" . | nindent 4 }}
+    {{- with .Values.monitoring.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+  - name: tailscale-injection-webhook
+    interval: 30s
+    rules:
+    # Availability alerts
+    - alert: TailscaleWebhookDown
+      expr: up{job="{{ include "tailscale-injector.fullname" . }}"} == 0
+      for: 5m
+      labels:
+        severity: critical
+        component: tailscale-webhook
+      annotations:
+        summary: "Tailscale injection webhook is down"
+        description: "Tailscale injection webhook {{ $labels.instance }} has been down for more than 5 minutes."
+
+    - alert: TailscaleWebhookHighErrorRate
+      expr: |
+        (
+          sum(rate(tailscale_webhook_requests_total{status!~"2.."}[5m]))
+          /
+          sum(rate(tailscale_webhook_requests_total[5m]))
+        ) > 0.05
+      for: 5m
+      labels:
+        severity: warning
+        component: tailscale-webhook
+      annotations:
+        summary: "High error rate for Tailscale webhook"
+        description: "Tailscale webhook error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+    # Performance alerts
+    - alert: TailscaleWebhookHighLatency
+      expr: |
+        histogram_quantile(0.99,
+          sum(rate(tailscale_webhook_duration_seconds_bucket[5m])) by (le)
+        ) > 1
+      for: 5m
+      labels:
+        severity: warning
+        component: tailscale-webhook
+      annotations:
+        summary: "High latency for Tailscale webhook"
+        description: "Tailscale webhook 99th percentile latency is {{ $value }}s over the last 5 minutes."
+
+    - alert: TailscaleWebhookHighMemoryUsage
+      expr: |
+        container_memory_usage_bytes{pod=~"{{ include "tailscale-injector.fullname" . }}.*"}
+        /
+        container_spec_memory_limit_bytes{pod=~"{{ include "tailscale-injector.fullname" . }}.*"}
+        > 0.8
+      for: 5m
+      labels:
+        severity: warning
+        component: tailscale-webhook
+      annotations:
+        summary: "High memory usage for Tailscale webhook"
+        description: "Tailscale webhook pod {{ $labels.pod }} memory usage is at {{ $value | humanizePercentage }}."
+
+    # Certificate alerts
+    - alert: TailscaleWebhookCertificateExpiringSoon
+      expr: tailscale_webhook_cert_expiry_timestamp - time() < 7 * 86400
+      for: 1h
+      labels:
+        severity: warning
+        component: tailscale-webhook
+      annotations:
+        summary: "Tailscale webhook certificate expiring soon"
+        description: "Tailscale webhook certificate will expire in {{ $value | humanizeDuration }}."
+
+    - alert: TailscaleWebhookCertificateExpired
+      expr: tailscale_webhook_cert_expiry_timestamp - time() < 0
+      for: 1m
+      labels:
+        severity: critical
+        component: tailscale-webhook
+      annotations:
+        summary: "Tailscale webhook certificate has expired"
+        description: "Tailscale webhook certificate has expired {{ $value | humanizeDuration }} ago."
+
+    # Injection failure alerts
+    - alert: TailscaleInjectionFailureRate
+      expr: |
+        (
+          sum(rate(tailscale_injection_attempts_total[5m]))
+          -
+          sum(rate(tailscale_injection_success_total[5m]))
+        )
+        /
+        sum(rate(tailscale_injection_attempts_total[5m]))
+        > 0.1
+      for: 5m
+      labels:
+        severity: warning
+        component: tailscale-webhook
+      annotations:
+        summary: "High injection failure rate"
+        description: "Tailscale injection failure rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+    # Validation failure alerts
+    - alert: TailscaleValidationFailureRate
+      expr: |
+        (
+          sum(rate(tailscale_validation_attempts_total[5m]))
+          -
+          sum(rate(tailscale_validation_success_total[5m]))
+        )
+        /
+        sum(rate(tailscale_validation_attempts_total[5m]))
+        > 0.1
+      for: 5m
+      labels:
+        severity: warning
+        component: tailscale-webhook
+      annotations:
+        summary: "High validation failure rate"
+        description: "Tailscale validation failure rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+    # Resource alerts
+    - alert: TailscaleWebhookRestarts
+      expr: |
+        increase(kube_pod_container_status_restarts_total{pod=~"{{ include "tailscale-injector.fullname" . }}.*"}[1h]) > 3
+      for: 5m
+      labels:
+        severity: warning
+        component: tailscale-webhook
+      annotations:
+        summary: "Tailscale webhook pod restarting frequently"
+        description: "Tailscale webhook pod {{ $labels.pod }} has restarted {{ $value }} times in the last hour."
+
+    - alert: TailscaleWebhookNotReady
+      expr: |
+        kube_pod_status_ready{pod=~"{{ include "tailscale-injector.fullname" . }}.*", condition="true"} == 0
+      for: 5m
+      labels:
+        severity: warning
+        component: tailscale-webhook
+      annotations:
+        summary: "Tailscale webhook pod not ready"
+        description: "Tailscale webhook pod {{ $labels.pod }} has been not ready for more than 5 minutes."
+{{- end }}

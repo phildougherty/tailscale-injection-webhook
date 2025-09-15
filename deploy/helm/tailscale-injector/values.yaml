@@ -1,0 +1,320 @@
+# Default values for tailscale-injector.
+# This is a YAML-formatted file.
+
+# Global configuration
+global:
+  # Global image registry
+  imageRegistry: ""
+  # Global image pull secrets
+  imagePullSecrets: []
+
+# Webhook image configuration
+image:
+  registry: ""
+  repository: tailscale/tailscale-injection-webhook
+  tag: "v1.0.0"
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+# Webhook server configuration
+webhook:
+  # Server bind address
+  bindAddress: "0.0.0.0"
+  # Server port
+  port: 8443
+  # TLS certificate file path
+  certFile: /etc/certs/tls.crt
+  # TLS key file path
+  keyFile: /etc/certs/tls.key
+  # Failure policy for admission webhook
+  failurePolicy: Fail
+  # Namespace selector for webhook
+  namespaceSelector:
+    matchExpressions:
+    - key: name
+      operator: NotIn
+      values: ["kube-system", "kube-public", "kube-node-lease"]
+    - key: tailscale.com/injection
+      operator: NotIn
+      values: ["disabled"]
+  # Object selector for webhook
+  objectSelector:
+    matchExpressions:
+    - key: tailscale.com/inject
+      operator: In
+      values: ["true", "yes", "1"]
+
+# Metrics configuration
+metrics:
+  enabled: true
+  bindAddress: "0.0.0.0"
+  port: 8080
+  # Service monitor for Prometheus Operator
+  serviceMonitor:
+    enabled: false
+    namespace: ""
+    labels: {}
+    annotations: {}
+    interval: 30s
+    scrapeTimeout: 10s
+
+# Authentication configuration
+authKey:
+  # Auth key value (required if secretName is not provided)
+  value: ""
+  # Existing secret name containing auth key
+  secretName: ""
+  # Secret key containing auth key
+  secretKey: "authkey"
+  # Create secret from value
+  create: true
+
+# Injection configuration
+injection:
+  # Default Tailscale image
+  defaultImage: "tailscale/tailscale:v1.52.1"
+  # Default image pull policy
+  defaultImagePullPolicy: "IfNotPresent"
+  # Default userspace mode
+  defaultUserspace: false
+  # Default debug mode
+  defaultDebug: false
+  # Default accept routes
+  defaultAcceptRoutes: false
+  # Default resource requirements
+  resources:
+    requests:
+      cpu: "10m"
+      memory: "32Mi"
+    limits:
+      cpu: "100m"
+      memory: "128Mi"
+
+# Tags configuration
+tags:
+  # Enable automatic tag generation
+  autoGenerate: true
+  # Default tags applied to all injected pods
+  defaultTags:
+    - "tag:k8s"
+    - "tag:webhook-injected"
+  # Tag generation rules
+  rules:
+    # Add namespace-based tag
+    namespace: true
+    # Add environment-based tag
+    environment: true
+    # Add pod-specific tag (disabled by default)
+    pod: false
+
+# Deployment configuration
+deployment:
+  # Number of replicas
+  replicaCount: 2
+  # Deployment strategy
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  # Restart policy
+  restartPolicy: Always
+
+# Container configuration
+container:
+  # Security context
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 65532
+    capabilities:
+      drop:
+      - ALL
+  # Resource requirements
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  # Liveness probe
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: webhook-api
+      scheme: HTTPS
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  # Readiness probe
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: webhook-api
+      scheme: HTTPS
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# Pod configuration
+pod:
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    fsGroup: 65532
+  # Annotations
+  annotations: {}
+  # Labels
+  labels: {}
+
+# Service configuration
+service:
+  # Service type
+  type: ClusterIP
+  # Webhook port
+  port: 443
+  # Target port
+  targetPort: 8443
+  # Metrics port
+  metricsPort: 8080
+  # Annotations
+  annotations: {}
+
+# Service account configuration
+serviceAccount:
+  # Create service account
+  create: true
+  # Service account name
+  name: ""
+  # Annotations
+  annotations: {}
+
+# RBAC configuration
+rbac:
+  # Create RBAC resources
+  create: true
+
+# Certificate configuration
+certificates:
+  # Certificate management method: cert-manager, manual, or openshift
+  method: cert-manager
+  # cert-manager configuration
+  certManager:
+    # Issuer type: selfsigned, ca, or letsencrypt
+    issuerType: selfsigned
+    # CA certificate duration (for ca issuer)
+    caDuration: 8760h # 1 year
+    # Server certificate duration
+    duration: 2160h # 90 days
+    # Renew before expiration
+    renewBefore: 720h # 30 days
+  # Manual certificate configuration
+  manual:
+    # TLS certificate (base64 encoded)
+    tlsCert: ""
+    # TLS key (base64 encoded)
+    tlsKey: ""
+    # CA certificate (base64 encoded)
+    caCert: ""
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations:
+- key: node-role.kubernetes.io/master
+  operator: Exists
+  effect: NoSchedule
+- key: node-role.kubernetes.io/control-plane
+  operator: Exists
+  effect: NoSchedule
+
+# Affinity
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: tailscale-injector
+        topologyKey: kubernetes.io/hostname
+
+# Network policy
+networkPolicy:
+  # Enable network policy
+  enabled: false
+  # Ingress rules
+  ingress:
+    # Allow from kube-apiserver
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            name: kube-system
+      ports:
+      - protocol: TCP
+        port: 8443
+    # Allow metrics scraping
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            name: monitoring
+      ports:
+      - protocol: TCP
+        port: 8080
+
+# Pod Security Policy
+podSecurityPolicy:
+  # Enable pod security policy
+  enabled: false
+
+# Monitoring and observability
+monitoring:
+  # Enable ServiceMonitor for Prometheus Operator
+  serviceMonitor:
+    enabled: false
+    namespace: ""
+    labels: {}
+    annotations: {}
+    interval: 30s
+    scrapeTimeout: 10s
+  # Enable Grafana dashboard
+  grafanaDashboard:
+    enabled: false
+    namespace: ""
+    labels: {}
+
+# Logging configuration
+logging:
+  # Log level: debug, info, warn, error
+  level: info
+  # Log format: json, text
+  format: json
+
+# Configuration files
+config:
+  # Create configuration ConfigMap
+  create: true
+  # Additional configuration
+  additional: {}
+
+# Tests
+tests:
+  # Enable test pod
+  enabled: true
+  # Test image
+  image:
+    repository: curlimages/curl
+    tag: latest
+    pullPolicy: IfNotPresent
+
+# Common labels applied to all resources
+commonLabels: {}
+
+# Common annotations applied to all resources
+commonAnnotations: {}

@@ -1,0 +1,169 @@
+{{- if eq .Values.certificates.method "cert-manager" }}
+{{- if eq .Values.certificates.certManager.issuerType "selfsigned" }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "tailscale-injector.issuerName" . }}
+  namespace: {{ include "tailscale-injector.namespace" . }}
+  labels:
+    {{- include "tailscale-injector.labels" . | nindent 4 }}
+    component: certificates
+  {{- with (include "tailscale-injector.annotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+spec:
+  selfSigned: {}
+
+---
+{{- end }}
+
+{{- if eq .Values.certificates.certManager.issuerType "ca" }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "tailscale-injector.fullname" . }}-ca
+  namespace: {{ include "tailscale-injector.namespace" . }}
+  labels:
+    {{- include "tailscale-injector.labels" . | nindent 4 }}
+    component: certificates
+  {{- with (include "tailscale-injector.annotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+spec:
+  secretName: {{ include "tailscale-injector.caSecretName" . }}
+  commonName: "{{ include "tailscale-injector.fullname" . }}-ca"
+  isCA: true
+  duration: {{ .Values.certificates.certManager.caDuration }}
+  renewBefore: {{ .Values.certificates.certManager.renewBefore }}
+  issuerRef:
+    name: {{ include "tailscale-injector.issuerName" . }}
+    kind: Issuer
+    group: cert-manager.io
+  subject:
+    organizationalUnits:
+    - Tailscale Injection Webhook
+    organizations:
+    - Tailscale
+
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "tailscale-injector.fullname" . }}-ca-issuer
+  namespace: {{ include "tailscale-injector.namespace" . }}
+  labels:
+    {{- include "tailscale-injector.labels" . | nindent 4 }}
+    component: certificates
+  {{- with (include "tailscale-injector.annotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+spec:
+  ca:
+    secretName: {{ include "tailscale-injector.caSecretName" . }}
+
+---
+{{- end }}
+
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "tailscale-injector.fullname" . }}-certs
+  namespace: {{ include "tailscale-injector.namespace" . }}
+  labels:
+    {{- include "tailscale-injector.labels" . | nindent 4 }}
+    component: certificates
+  {{- with (include "tailscale-injector.annotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+spec:
+  secretName: {{ include "tailscale-injector.certificateSecretName" . }}
+  commonName: {{ include "tailscale-injector.webhookServiceName" . }}.{{ include "tailscale-injector.namespace" . }}.svc
+  duration: {{ .Values.certificates.certManager.duration }}
+  renewBefore: {{ .Values.certificates.certManager.renewBefore }}
+  dnsNames:
+  - {{ include "tailscale-injector.webhookServiceName" . }}
+  - {{ include "tailscale-injector.webhookServiceName" . }}.{{ include "tailscale-injector.namespace" . }}
+  - {{ include "tailscale-injector.webhookServiceName" . }}.{{ include "tailscale-injector.namespace" . }}.svc
+  - {{ include "tailscale-injector.webhookServiceName" . }}.{{ include "tailscale-injector.namespace" . }}.svc.cluster.local
+  usages:
+  - digital signature
+  - key encipherment
+  - server auth
+  issuerRef:
+    {{- if eq .Values.certificates.certManager.issuerType "ca" }}
+    name: {{ include "tailscale-injector.fullname" . }}-ca-issuer
+    {{- else }}
+    name: {{ include "tailscale-injector.issuerName" . }}
+    {{- end }}
+    kind: Issuer
+    group: cert-manager.io
+
+{{- else if eq .Values.certificates.method "manual" }}
+{{- if and .Values.certificates.manual.tlsCert .Values.certificates.manual.tlsKey }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "tailscale-injector.certificateSecretName" . }}
+  namespace: {{ include "tailscale-injector.namespace" . }}
+  labels:
+    {{- include "tailscale-injector.labels" . | nindent 4 }}
+    component: certificates
+  {{- with (include "tailscale-injector.annotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ .Values.certificates.manual.tlsCert }}
+  tls.key: {{ .Values.certificates.manual.tlsKey }}
+
+{{- if .Values.certificates.manual.caCert }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "tailscale-injector.caSecretName" . }}
+  namespace: {{ include "tailscale-injector.namespace" . }}
+  labels:
+    {{- include "tailscale-injector.labels" . | nindent 4 }}
+    component: certificates
+  {{- with (include "tailscale-injector.annotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+type: Opaque
+data:
+  ca.crt: {{ .Values.certificates.manual.caCert }}
+{{- end }}
+{{- end }}
+
+{{- else if eq .Values.certificates.method "openshift" }}
+# OpenShift service serving certificates will be automatically generated
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tailscale-injector.webhookServiceName" . }}-serving-cert
+  namespace: {{ include "tailscale-injector.namespace" . }}
+  labels:
+    {{- include "tailscale-injector.labels" . | nindent 4 }}
+    component: certificates
+  annotations:
+    service.beta.openshift.io/serving-cert-secret-name: {{ include "tailscale-injector.certificateSecretName" . }}
+    {{- with (include "tailscale-injector.annotations" .) }}
+    {{- . | nindent 4 }}
+    {{- end }}
+spec:
+  type: ClusterIP
+  ports:
+  - name: webhook-api
+    port: 443
+    targetPort: 8443
+    protocol: TCP
+  selector:
+    {{- include "tailscale-injector.selectorLabels" . | nindent 4 }}
+    component: webhook
+{{- end }}

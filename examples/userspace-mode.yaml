@@ -1,0 +1,195 @@
+# Userspace Mode Example
+# This example shows how to use Tailscale in userspace mode
+# for environments where kernel networking is not available
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: userspace-app
+  namespace: default
+  labels:
+    app: userspace-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: userspace-app
+  template:
+    metadata:
+      labels:
+        app: userspace-app
+      annotations:
+        # Enable Tailscale injection
+        tailscale.com/inject: "true"
+
+        # Set hostname
+        tailscale.com/hostname: "userspace-app"
+
+        # Enable userspace networking mode
+        tailscale.com/userspace: "true"
+
+        # Enable debug mode for troubleshooting
+        tailscale.com/debug: "true"
+
+        # Tags for userspace deployment
+        tailscale.com/tags: '["tag:userspace", "tag:development", "tag:secure"]'
+
+        # Custom auth key
+        tailscale.com/auth-key: "development-auth-key"
+    spec:
+      securityContext:
+        # Userspace mode can run as non-root
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - name: app
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+          name: http
+        securityContext:
+          # No special capabilities needed for userspace mode
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: var-cache
+          mountPath: /var/cache/nginx
+        - name: var-run
+          mountPath: /var/run
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: var-cache
+        emptyDir: {}
+      - name: var-run
+        emptyDir: {}
+
+---
+# Service for userspace app
+apiVersion: v1
+kind: Service
+metadata:
+  name: userspace-app
+  namespace: default
+  labels:
+    app: userspace-app
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 80
+    name: http
+  selector:
+    app: userspace-app
+
+---
+# Development auth key secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: development-auth-key
+  namespace: default
+type: Opaque
+data:
+  # Replace with your actual development auth key (base64 encoded)
+  authkey: dHNrZXktYXV0aC1kZXZlbG9wbWVudC1rZXk=
+
+---
+# Pod Security Policy for userspace mode (if PSP is enabled)
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: tailscale-userspace
+  labels:
+    app: tailscale-userspace
+spec:
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+    - ALL
+  volumes:
+    - 'configMap'
+    - 'emptyDir'
+    - 'projected'
+    - 'secret'
+    - 'downwardAPI'
+    - 'persistentVolumeClaim'
+  hostNetwork: false
+  hostIPC: false
+  hostPID: false
+  runAsUser:
+    rule: 'MustRunAsNonRoot'
+  supplementalGroups:
+    rule: 'MustRunAs'
+    ranges:
+      - min: 1
+        max: 65535
+  fsGroup:
+    rule: 'MustRunAs'
+    ranges:
+      - min: 1
+        max: 65535
+  readOnlyRootFilesystem: true
+
+---
+# NetworkPolicy for userspace app (restrictive example)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: userspace-app
+  namespace: default
+  labels:
+    app: userspace-app
+spec:
+  podSelector:
+    matchLabels:
+      app: userspace-app
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    # Allow traffic from within namespace
+    - podSelector: {}
+    ports:
+    - protocol: TCP
+      port: 80
+  - from:
+    # Allow traffic from ingress controllers
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 80
+  egress:
+  # Allow DNS resolution
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+  # Allow HTTPS for package updates, etc.
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+  # Allow Tailscale control plane access
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: UDP
+      port: 3478

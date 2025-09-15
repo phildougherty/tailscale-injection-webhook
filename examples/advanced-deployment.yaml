@@ -1,0 +1,108 @@
+# Advanced Deployment with Tailscale Injection
+# This example shows advanced configuration options
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-frontend
+  namespace: production
+  labels:
+    app: web-frontend
+    tier: frontend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: web-frontend
+  template:
+    metadata:
+      labels:
+        app: web-frontend
+        tier: frontend
+      annotations:
+        # Enable Tailscale injection
+        tailscale.com/inject: "true"
+
+        # Custom hostname (will be suffixed with pod hash for uniqueness)
+        tailscale.com/hostname: "web-frontend-prod"
+
+        # Custom tags for ACL management
+        tailscale.com/tags: '["tag:web-frontend", "tag:production", "tag:public-access"]'
+
+        # Use a specific auth key secret
+        tailscale.com/auth-key: "production-auth-key"
+
+        # Accept routes from other Tailscale nodes
+        tailscale.com/accept-routes: "true"
+
+        # Use kernel networking for better performance
+        tailscale.com/userspace: "false"
+
+        # Expose application port through Tailscale
+        tailscale.com/expose: "3000,8080"
+    spec:
+      containers:
+      - name: frontend
+        image: mycompany/web-frontend:v1.2.3
+        ports:
+        - containerPort: 3000
+          name: http
+        - containerPort: 8080
+          name: metrics
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: API_ENDPOINT
+          value: "http://api-backend.production.svc.cluster.local:8000"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+
+---
+# Service for the deployment
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-frontend
+  namespace: production
+  labels:
+    app: web-frontend
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 3000
+    name: http
+  - port: 8080
+    targetPort: 8080
+    name: metrics
+  selector:
+    app: web-frontend
+
+---
+# Auth key secret for production
+apiVersion: v1
+kind: Secret
+metadata:
+  name: production-auth-key
+  namespace: production
+type: Opaque
+data:
+  # Replace with your actual production auth key (base64 encoded)
+  authkey: dHNrZXktYXV0aC1wcm9kdWN0aW9uLWtleQ==

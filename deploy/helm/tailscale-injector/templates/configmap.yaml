@@ -1,0 +1,131 @@
+{{- if .Values.config.create }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "tailscale-injector.configMapName" . }}
+  namespace: {{ include "tailscale-injector.namespace" . }}
+  labels:
+    {{- include "tailscale-injector.labels" . | nindent 4 }}
+    component: config
+  {{- with (include "tailscale-injector.annotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+data:
+  config.yaml: |
+    webhook:
+      bindAddress: {{ .Values.webhook.bindAddress | quote }}
+      port: {{ .Values.webhook.port }}
+      certFile: {{ .Values.webhook.certFile | quote }}
+      keyFile: {{ .Values.webhook.keyFile | quote }}
+      gracefulTimeout: "30s"
+      healthCheck:
+        enabled: true
+        path: "/health"
+      readinessCheck:
+        enabled: true
+        path: "/ready"
+
+    metrics:
+      enabled: {{ .Values.metrics.enabled }}
+      bindAddress: {{ .Values.metrics.bindAddress | quote }}
+      port: {{ .Values.metrics.port }}
+      path: "/metrics"
+
+    logging:
+      level: {{ .Values.logging.level | quote }}
+      format: {{ .Values.logging.format | quote }}
+      timestamp: true
+      caller: false
+
+    injection:
+      defaultImage: {{ .Values.injection.defaultImage | quote }}
+      defaultImagePullPolicy: {{ .Values.injection.defaultImagePullPolicy | quote }}
+      defaultAuthKeySecret: {{ include "tailscale-injector.authKeySecretName" . | quote }}
+      defaultUserspace: {{ .Values.injection.defaultUserspace }}
+      defaultDebug: {{ .Values.injection.defaultDebug }}
+      defaultAcceptRoutes: {{ .Values.injection.defaultAcceptRoutes }}
+
+      resources:
+        requests:
+          cpu: {{ .Values.injection.resources.requests.cpu | quote }}
+          memory: {{ .Values.injection.resources.requests.memory | quote }}
+        limits:
+          cpu: {{ .Values.injection.resources.limits.cpu | quote }}
+          memory: {{ .Values.injection.resources.limits.memory | quote }}
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: false
+        capabilities:
+          add: ["NET_ADMIN"]
+          drop: ["ALL"]
+
+      lifecycle:
+        terminationGracePeriodSeconds: 30
+        startupProbe:
+          enabled: true
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 10
+        livenessProbe:
+          enabled: true
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          enabled: true
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+    tags:
+      autoGenerate: {{ .Values.tags.autoGenerate }}
+      defaultTags:
+        {{- range .Values.tags.defaultTags }}
+        - {{ . | quote }}
+        {{- end }}
+      rules:
+        namespace: {{ .Values.tags.rules.namespace }}
+        environment: {{ .Values.tags.rules.environment }}
+        pod: {{ .Values.tags.rules.pod }}
+
+      validation:
+        maxTags: 20
+        maxTagLength: 80
+        allowedPatterns:
+          - "^tag:[a-z0-9]([a-z0-9-_]*[a-z0-9])?$"
+        forbiddenPatterns:
+          - "^tag:admin.*"
+          - "^tag:system.*"
+
+    network:
+      dns:
+        acceptDNS: false
+        customServers: []
+      routes:
+        acceptRoutes: {{ .Values.injection.defaultAcceptRoutes }}
+        defaultAdvertiseRoutes: []
+      exitNode:
+        allowAdvertising: false
+        defaultExitNode: ""
+
+    security:
+      podSecurity:
+        enforceSecurityContext: true
+        allowPrivileged: false
+        requireNonRoot: true
+      admission:
+        failOnError: true
+        allowSystemNamespaces: false
+        requireExplicitInjection: true
+
+    {{- if .Values.config.additional }}
+    {{- toYaml .Values.config.additional | nindent 4 }}
+    {{- end }}
+{{- end }}

@@ -1,0 +1,163 @@
+# Subnet Router Example
+# This example shows how to create a Tailscale subnet router in Kubernetes
+# to expose cluster networks to the Tailscale network
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tailscale-subnet-router
+  namespace: kube-system
+  labels:
+    app: tailscale-subnet-router
+    component: networking
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tailscale-subnet-router
+  template:
+    metadata:
+      labels:
+        app: tailscale-subnet-router
+        component: networking
+      annotations:
+        # Enable Tailscale injection
+        tailscale.com/inject: "true"
+
+        # Set hostname for the subnet router
+        tailscale.com/hostname: "k8s-subnet-router"
+
+        # Advertise cluster network routes
+        # Adjust these CIDR blocks to match your cluster configuration
+        tailscale.com/subnet-router: "10.96.0.0/12,10.244.0.0/16,10.0.0.0/8"
+
+        # Tags for subnet router
+        tailscale.com/tags: '["tag:subnet-router", "tag:k8s-infrastructure", "tag:networking"]'
+
+        # Use dedicated auth key for infrastructure
+        tailscale.com/auth-key: "infrastructure-auth-key"
+
+        # Accept routes from other nodes (optional)
+        tailscale.com/accept-routes: "true"
+
+        # Use kernel networking for routing performance
+        tailscale.com/userspace: "false"
+    spec:
+      serviceAccountName: tailscale-subnet-router
+      hostNetwork: true  # Required for subnet routing
+      containers:
+      - name: router
+        image: alpine:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          echo "Tailscale subnet router container started"
+          # Enable IP forwarding
+          echo 1 > /proc/sys/net/ipv4/ip_forward
+          echo 1 > /proc/sys/net/ipv6/conf/all/forwarding
+
+          # Keep container running
+          while true; do
+            echo "Subnet router is running..."
+            sleep 300
+          done
+        securityContext:
+          privileged: true  # Required for network configuration
+          capabilities:
+            add:
+            - NET_ADMIN
+            - SYS_ADMIN
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+      nodeSelector:
+        kubernetes.io/os: linux
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+
+---
+# Service account for subnet router
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tailscale-subnet-router
+  namespace: kube-system
+  labels:
+    app: tailscale-subnet-router
+
+---
+# ClusterRole for subnet router operations
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tailscale-subnet-router
+  labels:
+    app: tailscale-subnet-router
+rules:
+- apiGroups: [""]
+  resources: ["nodes", "pods", "services", "endpoints"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["networkpolicies"]
+  verbs: ["get", "list", "watch"]
+
+---
+# ClusterRoleBinding for subnet router
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tailscale-subnet-router
+  labels:
+    app: tailscale-subnet-router
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tailscale-subnet-router
+subjects:
+- kind: ServiceAccount
+  name: tailscale-subnet-router
+  namespace: kube-system
+
+---
+# Auth key secret for infrastructure components
+apiVersion: v1
+kind: Secret
+metadata:
+  name: infrastructure-auth-key
+  namespace: kube-system
+type: Opaque
+data:
+  # Replace with your actual infrastructure auth key (base64 encoded)
+  # This should be a reusable key with appropriate tags for subnet routers
+  authkey: dHNrZXktYXV0aC1pbmZyYXN0cnVjdHVyZS1rZXk=
+
+---
+# Network policy to allow subnet router traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tailscale-subnet-router
+  namespace: kube-system
+  labels:
+    app: tailscale-subnet-router
+spec:
+  podSelector:
+    matchLabels:
+      app: tailscale-subnet-router
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - {}  # Allow all ingress for routing
+  egress:
+  - {}  # Allow all egress for routing

@@ -1,0 +1,187 @@
+# Exit Node Example
+# This example shows how to create a Tailscale exit node in Kubernetes
+# to route internet traffic through the cluster
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tailscale-exit-node
+  namespace: tailscale-system
+  labels:
+    app: tailscale-exit-node
+    component: networking
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tailscale-exit-node
+  template:
+    metadata:
+      labels:
+        app: tailscale-exit-node
+        component: networking
+      annotations:
+        # Enable Tailscale injection
+        tailscale.com/inject: "true"
+
+        # Set hostname for the exit node
+        tailscale.com/hostname: "k8s-exit-node"
+
+        # Advertise as exit node
+        tailscale.com/exit-node: "true"
+
+        # Tags for exit node
+        tailscale.com/tags: '["tag:exit-node", "tag:k8s-infrastructure", "tag:internet-gateway"]'
+
+        # Use dedicated auth key for infrastructure
+        tailscale.com/auth-key: "infrastructure-auth-key"
+
+        # Use kernel networking for performance
+        tailscale.com/userspace: "false"
+    spec:
+      serviceAccountName: tailscale-exit-node
+      hostNetwork: true  # Required for exit node functionality
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+      - name: exit-node
+        image: alpine:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          echo "Tailscale exit node container started"
+
+          # Enable IP forwarding
+          echo 1 > /proc/sys/net/ipv4/ip_forward
+          echo 1 > /proc/sys/net/ipv6/conf/all/forwarding
+
+          # Configure iptables for NAT (if needed)
+          # Note: This is handled by Tailscale, but shown for reference
+          # iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+
+          # Keep container running and log status
+          while true; do
+            echo "Exit node is running..."
+            # Log current connections (optional)
+            if command -v ss >/dev/null 2>&1; then
+              echo "Active connections: $(ss -tuln | wc -l)"
+            fi
+            sleep 300
+          done
+        securityContext:
+          privileged: true  # Required for network configuration
+          capabilities:
+            add:
+            - NET_ADMIN
+            - SYS_ADMIN
+            - NET_RAW
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+      nodeSelector:
+        kubernetes.io/os: linux
+        # Optional: Select nodes with good internet connectivity
+        # node-type: gateway
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+
+---
+# Service account for exit node
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tailscale-exit-node
+  namespace: tailscale-system
+  labels:
+    app: tailscale-exit-node
+
+---
+# ClusterRole for exit node operations
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tailscale-exit-node
+  labels:
+    app: tailscale-exit-node
+rules:
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch"]
+
+---
+# ClusterRoleBinding for exit node
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tailscale-exit-node
+  labels:
+    app: tailscale-exit-node
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tailscale-exit-node
+subjects:
+- kind: ServiceAccount
+  name: tailscale-exit-node
+  namespace: tailscale-system
+
+---
+# Network policy for exit node (allow all traffic)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tailscale-exit-node
+  namespace: tailscale-system
+  labels:
+    app: tailscale-exit-node
+spec:
+  podSelector:
+    matchLabels:
+      app: tailscale-exit-node
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - {}  # Allow all ingress for routing
+  egress:
+  - {}  # Allow all egress for internet access
+
+---
+# Service to expose exit node metrics (optional)
+apiVersion: v1
+kind: Service
+metadata:
+  name: tailscale-exit-node-metrics
+  namespace: tailscale-system
+  labels:
+    app: tailscale-exit-node
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+  selector:
+    app: tailscale-exit-node

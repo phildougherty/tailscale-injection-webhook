@@ -1,0 +1,127 @@
+# Git files
+.git/
+.gitignore
+.github/
+
+# Documentation
+*.md
+docs/
+LICENSE
+CONTRIBUTING
+
+# Development files
+.vscode/
+.idea/
+*.iml
+.DS_Store
+
+# Build artifacts and binaries
+bin/
+dist/
+build/
+_output/
+*.exe
+*.dll
+*.so
+*.dylib
+webhook
+tailscale-injection-webhook
+
+# Test files and coverage
+*_test.go
+*.test
+*.out
+coverage.txt
+coverage.html
+*.cov
+test/
+tests/
+e2e/
+
+# Kubernetes manifests (will be deployed separately)
+deploy/
+!deploy/helm/tailscale-injector/
+
+# Helm charts (only needed for deployment)
+*.tgz
+charts/
+Chart.lock
+
+# Examples (not needed in image)
+examples/
+
+# Environment and config files
+.env
+.env.*
+*.env
+kubeconfig
+kubeconfig.yaml
+.local/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.log
+
+# IDE and OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+Thumbs.db
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+Jenkinsfile
+azure-pipelines.yml
+
+# Dependencies (will be downloaded during build)
+vendor/
+
+# Go workspace
+go.work
+go.work.sum
+
+# Backup files
+*.bak
+*.backup
+
+# Archives
+*.tar
+*.tar.gz
+*.zip
+
+# Certificates (should be mounted at runtime)
+*.crt
+*.key
+*.pem
+
+# Scripts not needed in container
+scripts/
+hack/
+
+# Makefile is for development
+Makefile
+
+# Terraform files
+*.tf
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Python files
+*.py
+__pycache__/
+*.pyc
+
+# goreleaser
+.goreleaser.yml
+dist/

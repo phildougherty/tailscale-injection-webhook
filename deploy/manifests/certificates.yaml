@@ -1,0 +1,265 @@
+# Certificate management for the webhook
+# This example uses cert-manager for automatic certificate generation
+# Alternative approaches: manual certificates, OpenShift service serving certificates, etc.
+
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: tailscale-injection-webhook-selfsigned
+  namespace: tailscale-system
+  labels:
+    app: tailscale-injection-webhook
+    component: certificates
+spec:
+  selfSigned: {}
+
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: tailscale-injection-webhook-ca
+  namespace: tailscale-system
+  labels:
+    app: tailscale-injection-webhook
+    component: certificates
+spec:
+  secretName: tailscale-injection-webhook-ca
+  commonName: "tailscale-injection-webhook-ca"
+  isCA: true
+  duration: 8760h # 1 year
+  renewBefore: 720h # 30 days
+  issuerRef:
+    name: tailscale-injection-webhook-selfsigned
+    kind: Issuer
+    group: cert-manager.io
+  subject:
+    organizationalUnits:
+    - Tailscale Injection Webhook
+    organizations:
+    - Tailscale
+
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: tailscale-injection-webhook-ca-issuer
+  namespace: tailscale-system
+  labels:
+    app: tailscale-injection-webhook
+    component: certificates
+spec:
+  ca:
+    secretName: tailscale-injection-webhook-ca
+
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: tailscale-injection-webhook-certs
+  namespace: tailscale-system
+  labels:
+    app: tailscale-injection-webhook
+    component: certificates
+spec:
+  secretName: tailscale-injection-webhook-certs
+  commonName: tailscale-injection-webhook.tailscale-system.svc
+  duration: 2160h # 90 days
+  renewBefore: 720h # 30 days
+  dnsNames:
+  - tailscale-injection-webhook
+  - tailscale-injection-webhook.tailscale-system
+  - tailscale-injection-webhook.tailscale-system.svc
+  - tailscale-injection-webhook.tailscale-system.svc.cluster.local
+  usages:
+  - digital signature
+  - key encipherment
+  - server auth
+  issuerRef:
+    name: tailscale-injection-webhook-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
+
+---
+# Job to patch the webhook configuration with the CA bundle
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tailscale-injection-webhook-patch-ca
+  namespace: tailscale-system
+  labels:
+    app: tailscale-injection-webhook
+    component: ca-injector
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  template:
+    metadata:
+      labels:
+        app: tailscale-injection-webhook
+        component: ca-injector
+    spec:
+      serviceAccountName: tailscale-injection-webhook
+      restartPolicy: OnFailure
+      containers:
+      - name: patch-ca
+        image: bitnami/kubectl:latest
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "Waiting for certificate to be ready..."
+
+          # Wait for the certificate secret to be created
+          for i in {1..60}; do
+            if kubectl get secret tailscale-injection-webhook-certs -n tailscale-system >/dev/null 2>&1; then
+              echo "Certificate secret found"
+              break
+            fi
+            if [ $i -eq 60 ]; then
+              echo "Timeout waiting for certificate secret"
+              exit 1
+            fi
+            sleep 5
+          done
+
+          # Extract CA bundle
+          CA_BUNDLE=$(kubectl get secret tailscale-injection-webhook-ca -n tailscale-system -o jsonpath='{.data.ca\.crt}')
+
+          echo "Updating MutatingAdmissionWebhook CA bundle..."
+          kubectl patch mutatingadmissionwebhook tailscale-injection-webhook \
+            --type='json' \
+            -p="[{'op': 'replace', 'path': '/webhooks/0/clientConfig/caBundle', 'value': '${CA_BUNDLE}'}]"
+
+          echo "Updating ValidatingAdmissionWebhook CA bundle..."
+          kubectl patch validatingadmissionwebhook tailscale-injection-webhook-validator \
+            --type='json' \
+            -p="[{'op': 'replace', 'path': '/webhooks/0/clientConfig/caBundle', 'value': '${CA_BUNDLE}'}]"
+
+          echo "CA bundle updated successfully"
+
+---
+# Alternative: Manual certificate generation script
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tailscale-injection-webhook-cert-script
+  namespace: tailscale-system
+  labels:
+    app: tailscale-injection-webhook
+    component: certificates
+data:
+  generate-certs.sh: |
+    #!/bin/bash
+    set -e
+
+    NAMESPACE="tailscale-system"
+    SERVICE_NAME="tailscale-injection-webhook"
+    SECRET_NAME="tailscale-injection-webhook-certs"
+
+    # Create temporary directory
+    TMPDIR=$(mktemp -d)
+    cd $TMPDIR
+
+    # Generate CA private key
+    openssl genrsa -out ca.key 2048
+
+    # Generate CA certificate
+    openssl req -new -x509 -key ca.key -sha256 -subj "/C=US/ST=CA/O=Tailscale/CN=tailscale-injection-webhook-ca" -days 3650 -out ca.crt
+
+    # Generate server private key
+    openssl genrsa -out tls.key 2048
+
+    # Create certificate signing request
+    cat > csr.conf <<EOF
+    [req]
+    default_bits = 2048
+    prompt = no
+    default_md = sha256
+    req_extensions = req_ext
+    distinguished_name = dn
+
+    [dn]
+    C=US
+    ST=CA
+    O=Tailscale
+    CN=tailscale-injection-webhook.tailscale-system.svc
+
+    [req_ext]
+    subjectAltName = @alt_names
+
+    [alt_names]
+    DNS.1 = tailscale-injection-webhook
+    DNS.2 = tailscale-injection-webhook.tailscale-system
+    DNS.3 = tailscale-injection-webhook.tailscale-system.svc
+    DNS.4 = tailscale-injection-webhook.tailscale-system.svc.cluster.local
+    EOF
+
+    # Generate certificate signing request
+    openssl req -new -key tls.key -out server.csr -config csr.conf
+
+    # Generate server certificate
+    openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out tls.crt -days 365 -extensions req_ext -extfile csr.conf
+
+    # Create or update secret
+    kubectl create secret tls $SECRET_NAME \
+      --cert=tls.crt \
+      --key=tls.key \
+      --namespace=$NAMESPACE \
+      --dry-run=client -o yaml | kubectl apply -f -
+
+    # Update webhook configurations with CA bundle
+    CA_BUNDLE=$(base64 -w 0 < ca.crt)
+
+    kubectl patch mutatingadmissionwebhook tailscale-injection-webhook \
+      --type='json' \
+      -p="[{'op': 'replace', 'path': '/webhooks/0/clientConfig/caBundle', 'value': '${CA_BUNDLE}'}]"
+
+    kubectl patch validatingadmissionwebhook tailscale-injection-webhook-validator \
+      --type='json' \
+      -p="[{'op': 'replace', 'path': '/webhooks/0/clientConfig/caBundle', 'value': '${CA_BUNDLE}'}]"
+
+    # Cleanup
+    cd /
+    rm -rf $TMPDIR
+
+    echo "Certificates generated and webhook updated successfully"
+
+---
+# Job to run manual certificate generation (alternative to cert-manager)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tailscale-injection-webhook-generate-certs
+  namespace: tailscale-system
+  labels:
+    app: tailscale-injection-webhook
+    component: cert-generator
+  annotations:
+    helm.sh/hook: pre-install
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  template:
+    metadata:
+      labels:
+        app: tailscale-injection-webhook
+        component: cert-generator
+    spec:
+      serviceAccountName: tailscale-injection-webhook
+      restartPolicy: OnFailure
+      containers:
+      - name: cert-generator
+        image: alpine/openssl:latest
+        command:
+        - /bin/sh
+        - /scripts/generate-certs.sh
+        volumeMounts:
+        - name: cert-script
+          mountPath: /scripts
+          readOnly: true
+      volumes:
+      - name: cert-script
+        configMap:
+          name: tailscale-injection-webhook-cert-script
+          defaultMode: 0755

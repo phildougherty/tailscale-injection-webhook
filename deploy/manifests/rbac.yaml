@@ -1,0 +1,241 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tailscale-system
+  labels:
+    name: tailscale-system
+    tailscale.com/injection: disabled
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tailscale-injection-webhook
+  namespace: tailscale-system
+  labels:
+    app: tailscale-injection-webhook
+    component: webhook
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tailscale-injection-webhook
+  labels:
+    app: tailscale-injection-webhook
+    component: webhook
+rules:
+# Core permissions for webhook operation
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get", "list", "watch"]
+
+# Permissions for certificate management
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["create", "update", "patch"]
+  resourceNames: ["tailscale-injection-webhook-certs"]
+
+# Permissions for events and logging
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch"]
+
+# Permissions for admission controller configuration
+- apiGroups: ["admissionregistration.k8s.io"]
+  resources: ["mutatingadmissionwebhooks", "validatingadmissionwebhooks"]
+  verbs: ["get", "list", "watch", "update", "patch"]
+
+# Permissions for monitoring and metrics
+- apiGroups: [""]
+  resources: ["endpoints"]
+  verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tailscale-injection-webhook
+  labels:
+    app: tailscale-injection-webhook
+    component: webhook
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tailscale-injection-webhook
+subjects:
+- kind: ServiceAccount
+  name: tailscale-injection-webhook
+  namespace: tailscale-system
+
+---
+# Role for managing secrets within the tailscale-system namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tailscale-injection-webhook-secrets
+  namespace: tailscale-system
+  labels:
+    app: tailscale-injection-webhook
+    component: webhook
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch", "create", "update", "patch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tailscale-injection-webhook-secrets
+  namespace: tailscale-system
+  labels:
+    app: tailscale-injection-webhook
+    component: webhook
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tailscale-injection-webhook-secrets
+subjects:
+- kind: ServiceAccount
+  name: tailscale-injection-webhook
+  namespace: tailscale-system
+
+---
+# Security Policy (Pod Security Policy or Pod Security Standards)
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: tailscale-injection-webhook
+  labels:
+    app: tailscale-injection-webhook
+    component: webhook
+spec:
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+    - ALL
+  volumes:
+    - 'configMap'
+    - 'emptyDir'
+    - 'projected'
+    - 'secret'
+    - 'downwardAPI'
+  hostNetwork: false
+  hostIPC: false
+  hostPID: false
+  runAsUser:
+    rule: 'MustRunAsNonRoot'
+  supplementalGroups:
+    rule: 'MustRunAs'
+    ranges:
+      - min: 1
+        max: 65535
+  fsGroup:
+    rule: 'MustRunAs'
+    ranges:
+      - min: 1
+        max: 65535
+  readOnlyRootFilesystem: true
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tailscale-injection-webhook-psp
+  namespace: tailscale-system
+  labels:
+    app: tailscale-injection-webhook
+    component: webhook
+rules:
+- apiGroups: ['policy']
+  resources: ['podsecuritypolicies']
+  verbs: ['use']
+  resourceNames:
+  - tailscale-injection-webhook
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tailscale-injection-webhook-psp
+  namespace: tailscale-system
+  labels:
+    app: tailscale-injection-webhook
+    component: webhook
+roleRef:
+  kind: Role
+  name: tailscale-injection-webhook-psp
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+- kind: ServiceAccount
+  name: tailscale-injection-webhook
+  namespace: tailscale-system
+
+---
+# Network Policy to secure webhook traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tailscale-injection-webhook
+  namespace: tailscale-system
+  labels:
+    app: tailscale-injection-webhook
+    component: webhook
+spec:
+  podSelector:
+    matchLabels:
+      app: tailscale-injection-webhook
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    # Allow traffic from kube-apiserver
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: TCP
+      port: 8443
+  - from:
+    # Allow metrics scraping from monitoring namespace
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    - namespaceSelector:
+        matchLabels:
+          name: prometheus
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  # Allow DNS resolution
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  # Allow access to Kubernetes API
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 6443

@@ -1,0 +1,291 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tailscale-injection-webhook
+  namespace: tailscale-system
+  labels:
+    app: tailscale-injection-webhook
+    component: webhook
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: tailscale-injection-webhook
+  template:
+    metadata:
+      labels:
+        app: tailscale-injection-webhook
+        component: webhook
+    spec:
+      serviceAccountName: tailscale-injection-webhook
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+      containers:
+      - name: webhook
+        image: tailscale/tailscale-injection-webhook:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8443
+          name: webhook-api
+          protocol: TCP
+        - containerPort: 8080
+          name: metrics
+          protocol: TCP
+        env:
+        - name: TAILSCALE_WEBHOOK_BIND_ADDRESS
+          value: "0.0.0.0"
+        - name: TAILSCALE_WEBHOOK_PORT
+          value: "8443"
+        - name: TAILSCALE_WEBHOOK_TLS_CERT_FILE
+          value: "/etc/certs/tls.crt"
+        - name: TAILSCALE_WEBHOOK_TLS_KEY_FILE
+          value: "/etc/certs/tls.key"
+        - name: TAILSCALE_WEBHOOK_CONFIG_FILE
+          value: "/etc/config/config.yaml"
+        - name: TAILSCALE_WEBHOOK_METRICS
+          value: "true"
+        - name: TAILSCALE_WEBHOOK_METRICS_BIND_ADDRESS
+          value: "0.0.0.0"
+        - name: TAILSCALE_WEBHOOK_METRICS_PORT
+          value: "8080"
+        args:
+        - --v=2
+        volumeMounts:
+        - name: certs
+          mountPath: /etc/certs
+          readOnly: true
+        - name: config
+          mountPath: /etc/config
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: webhook-api
+            scheme: HTTPS
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: webhook-api
+            scheme: HTTPS
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: certs
+        secret:
+          secretName: tailscale-injection-webhook-certs
+          defaultMode: 0644
+      - name: config
+        configMap:
+          name: tailscale-injection-webhook-config
+          defaultMode: 0644
+      nodeSelector:
+        kubernetes.io/os: linux
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: tailscale-injection-webhook
+              topologyKey: kubernetes.io/hostname
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tailscale-injection-webhook
+  namespace: tailscale-system
+  labels:
+    app: tailscale-injection-webhook
+    component: webhook
+spec:
+  type: ClusterIP
+  ports:
+  - name: webhook-api
+    port: 443
+    targetPort: 8443
+    protocol: TCP
+  - name: metrics
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  selector:
+    app: tailscale-injection-webhook
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tailscale-injection-webhook-metrics
+  namespace: tailscale-system
+  labels:
+    app: tailscale-injection-webhook
+    component: metrics
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+  - name: metrics
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  selector:
+    app: tailscale-injection-webhook
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tailscale-injection-webhook-config
+  namespace: tailscale-system
+  labels:
+    app: tailscale-injection-webhook
+    component: config
+data:
+  config.yaml: |
+    webhook:
+      port: 8443
+      certFile: /etc/certs/tls.crt
+      keyFile: /etc/certs/tls.key
+
+    injection:
+      defaultImage: tailscale/tailscale:v1.52.1
+      defaultImagePullPolicy: IfNotPresent
+      defaultAuthKeySecret: tailscale-auth-key
+      defaultUserspace: false
+      defaultDebug: false
+
+      # Resource requirements for injected containers
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi
+
+      # Default tags to apply
+      defaultTags:
+        - tag:k8s
+
+      # Auto-generate tags based on namespace/pod
+      autoGenerateTags: true
+
+      # Tag rules for automatic generation
+      tagRules:
+        namespace: true
+        environment: true
+        pod: false
+
+    logging:
+      level: info
+      format: json
+
+    metrics:
+      enabled: true
+      port: 8080
+
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingAdmissionWebhook
+metadata:
+  name: tailscale-injection-webhook
+  labels:
+    app: tailscale-injection-webhook
+    component: webhook
+webhooks:
+- name: sidecar-injection.tailscale.com
+  clientConfig:
+    service:
+      name: tailscale-injection-webhook
+      namespace: tailscale-system
+      path: "/mutate"
+    caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t # Base64 encoded CA certificate
+  rules:
+  - operations: ["CREATE"]
+    apiGroups: [""]
+    apiVersions: ["v1"]
+    resources: ["pods"]
+  namespaceSelector:
+    matchExpressions:
+    - key: name
+      operator: NotIn
+      values: ["kube-system", "kube-public", "kube-node-lease"]
+    - key: tailscale.com/injection
+      operator: NotIn
+      values: ["disabled"]
+  objectSelector:
+    matchExpressions:
+    - key: tailscale.com/inject
+      operator: In
+      values: ["true", "yes", "1"]
+  failurePolicy: Fail
+  admissionReviewVersions: ["v1", "v1beta1"]
+  sideEffects: None
+
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionWebhook
+metadata:
+  name: tailscale-injection-webhook-validator
+  labels:
+    app: tailscale-injection-webhook
+    component: webhook
+webhooks:
+- name: sidecar-validation.tailscale.com
+  clientConfig:
+    service:
+      name: tailscale-injection-webhook
+      namespace: tailscale-system
+      path: "/validate"
+    caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t # Base64 encoded CA certificate
+  rules:
+  - operations: ["CREATE", "UPDATE"]
+    apiGroups: [""]
+    apiVersions: ["v1"]
+    resources: ["pods"]
+  namespaceSelector:
+    matchExpressions:
+    - key: name
+      operator: NotIn
+      values: ["kube-system", "kube-public", "kube-node-lease"]
+  objectSelector:
+    matchExpressions:
+    - key: tailscale.com/inject
+      operator: In
+      values: ["true", "yes", "1"]
+  failurePolicy: Fail
+  admissionReviewVersions: ["v1", "v1beta1"]
+  sideEffects: None
